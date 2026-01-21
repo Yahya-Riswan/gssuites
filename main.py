@@ -3,12 +3,20 @@ from fastapi import FastAPI, HTTPException, Body
 import mysql.connector
 import json
 import certifi
+from fastapi.middleware.cors import CORSMiddleware
 import re
+import uuid
 from typing import List, Optional
 from pydantic import BaseModel
 
 app = FastAPI()
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"], 
+    allow_headers=["*"],  
+)
 # --- CONFIGURATION ---
 db_config = {
     "host": "gateway01.ap-southeast-1.prod.aws.tidbcloud.com", # Your TiDB Host
@@ -107,6 +115,30 @@ async def delete_collection(name: str):
 # ==========================================
 # 2. DOCUMENT OPERATIONS
 # ==========================================
+@app.post("/doc/{collection}")
+async def add_document_auto(collection: str, data: dict = Body(...)):
+    """Adds a document and auto-generates a UUID."""
+    table = validate_name(collection)
+    
+    # Generate a unique ID
+    doc_id = str(uuid.uuid4()) 
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        # Ensure table exists
+        cursor.execute(f"CREATE TABLE IF NOT EXISTS {table} (id VARCHAR(255) PRIMARY KEY, doc JSON)")
+        
+        # Insert
+        json_data = json.dumps(data)
+        sql = f"INSERT INTO {table} (id, doc) VALUES (%s, %s)"
+        cursor.execute(sql, (doc_id, json_data))
+        conn.commit()
+        
+        # Return the new ID so the frontend knows it
+        return {"status": "created", "id": doc_id}
+    finally:
+        conn.close()
 
 @app.post("/doc/{collection}/{doc_id}")
 async def add_document(collection: str, doc_id: str, data: dict = Body(...)):
